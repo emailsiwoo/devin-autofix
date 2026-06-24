@@ -55,6 +55,13 @@ Daily Scheduler (8 AM UTC)
 ```
 
 ## Quick Start
+## Prerequisites
+
+Before running this project, ensure you have:
+
+- Docker Desktop (Docker Engine + Docker Compose)
+- A Devin API Key
+- A Devin Organization ID
 
 ### 1. Clone and configure
 
@@ -63,6 +70,13 @@ git clone https://github.com/emailsiwoo/devin-autofix.git
 cd devin-autofix
 cp .env.example .env
 # Edit .env with your actual values
+```
+Update `.env` with your own credentials:
+
+```env
+DEVIN_API_KEY=your_api_key
+DEVIN_ORG_ID=your_org_id
+GITHUB_WEBHOOK_SECRET=your_secret
 ```
 
 ### 2. Run with Docker Compose
