@@ -34,7 +34,8 @@ async def _poll_once() -> None:
             structured = data.get("structured_output") or {}
             if isinstance(structured, dict):
                 pr_url = pr_url or structured.get("pull_request_url")
-            pr_url = pr_url or data.get("pull_request", {}).get("url")
+            pr_field = data.get("pull_request") or {}
+            pr_url = pr_url or pr_field.get("url")
 
             success: bool | None = None
             if new_status == SessionStatus.succeeded:

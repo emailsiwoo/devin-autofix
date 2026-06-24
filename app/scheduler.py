@@ -79,8 +79,8 @@ def _build_dependency_upgrade_prompt() -> str:
     )
 
 
-async def _create_scan_session(prompt: str, title: str) -> None:
-    """Create a Devin session for a scheduled scan and track it."""
+async def _create_scan_session(prompt: str, title: str) -> bool:
+    """Create a Devin session for a scheduled scan and track it. Returns True on success."""
     try:
         result = await create_session(prompt)
         session_id = result["session_id"]
@@ -95,8 +95,10 @@ async def _create_scan_session(prompt: str, title: str) -> None:
         )
         store.add(tracked)
         logger.info("Scheduled scan session created: id=%s title=%s", session_id, title)
+        return True
     except Exception:
         logger.exception("Failed to create scheduled scan session: %s", title)
+        return False
 
 
 async def run_daily_scan() -> dict[str, str]:
@@ -112,21 +114,20 @@ async def run_daily_scan() -> dict[str, str]:
     if alerts:
         logger.info("Found %d critical and %d high vulnerability alerts", len(critical_alerts), len(high_alerts))
         prompt = _build_vuln_prompt(alerts)
-        await _create_scan_session(prompt, f"[scheduled] Fix {len(alerts)} vulnerability alert(s)")
-        vuln_session_created = True
+        vuln_session_created = await _create_scan_session(prompt, f"[scheduled] Fix {len(alerts)} vulnerability alert(s)")
     else:
         logger.info("No critical/high Dependabot alerts found")
 
     # 2. Always run a general dependency upgrade check
     dep_prompt = _build_dependency_upgrade_prompt()
-    await _create_scan_session(dep_prompt, "[scheduled] Daily dependency upgrade check")
+    dep_session_created = await _create_scan_session(dep_prompt, "[scheduled] Daily dependency upgrade check")
 
     summary = {
         "scan_time": datetime.now(timezone.utc).isoformat(),
         "critical_alerts": len(critical_alerts),
         "high_alerts": len(high_alerts),
         "vuln_session_created": vuln_session_created,
-        "dependency_session_created": True,
+        "dependency_session_created": dep_session_created,
     }
     logger.info("Daily scan complete: %s", summary)
     return summary
