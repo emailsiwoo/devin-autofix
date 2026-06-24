@@ -107,20 +107,30 @@ async def run_daily_scan() -> dict[str, str]:
 
     # 1. Check Dependabot alerts for critical/high vulnerabilities
     alerts = await _fetch_dependabot_alerts()
-    critical_alerts = [a for a in alerts if a.get("security_advisory", {}).get("severity") == "critical"]
+    critical_alerts = [
+        a for a in alerts if a.get("security_advisory", {}).get("severity") == "critical"
+    ]
     high_alerts = [a for a in alerts if a.get("security_advisory", {}).get("severity") == "high"]
 
     vuln_session_created = False
     if alerts:
-        logger.info("Found %d critical and %d high vulnerability alerts", len(critical_alerts), len(high_alerts))
+        logger.info(
+            "Found %d critical and %d high vulnerability alerts",
+            len(critical_alerts),
+            len(high_alerts),
+        )
         prompt = _build_vuln_prompt(alerts)
-        vuln_session_created = await _create_scan_session(prompt, f"[scheduled] Fix {len(alerts)} vulnerability alert(s)")
+        vuln_session_created = await _create_scan_session(
+            prompt, f"[scheduled] Fix {len(alerts)} vulnerability alert(s)"
+        )
     else:
         logger.info("No critical/high Dependabot alerts found")
 
     # 2. Always run a general dependency upgrade check
     dep_prompt = _build_dependency_upgrade_prompt()
-    dep_session_created = await _create_scan_session(dep_prompt, "[scheduled] Daily dependency upgrade check")
+    dep_session_created = await _create_scan_session(
+        dep_prompt, "[scheduled] Daily dependency upgrade check"
+    )
 
     summary = {
         "scan_time": datetime.now(timezone.utc).isoformat(),
