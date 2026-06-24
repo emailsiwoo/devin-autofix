@@ -164,3 +164,123 @@ After any change to `_STATUS_MAP` in `app/poller.py`, run this focused test:
    - `curl -s http://localhost:8000/dashboard` → new session should show `[RUN]` not `[???]`
    - `curl -s http://localhost:8000/report` → `active_sessions >= 1`, `status_breakdown.running >= 1`
 5. If any assertion fails, check the Devin API response for new/changed status strings and update `_STATUS_MAP`
+
+## Testing GitHub Reporting (PR #7+)
+
+### Endpoints
+- `GET /report/markdown` — Returns full markdown status report
+- `POST /report/github` — Posts report as comments on all tracked GitHub issues and PRs
+
+### 8. Markdown Report Generation
+```bash
+# Check headers
+curl -sI http://localhost:8000/report/markdown
+# Expect: HTTP 200, Content-Type: text/plain; charset=utf-8
+
+# Check content
+curl -s http://localhost:8000/report/markdown
+# Expect:
+#   - Header: "## 📋 Devin Autofix — Status Report"
+#   - Progress line: "**Progress:** X.X% complete (N/M sessions)"
+#   - "### Bottom Line" section
+#   - "### ⏳ What Is Still Running" — present if any sessions are running/pending
+#   - "### ✅ What Was Fixed" — present only if succeeded sessions exist
+#   - "### ❌ What Failed" — present only if failed sessions exist
+#   - "### 🔍 PRs Waiting for Review" — present if any succeeded sessions have pr_url
+#   - "### Session Details" table with one row per tracked session
+```
+
+### 9. GitHub Comment Posting (requires GITHUB_TOKEN)
+```bash
+# Post report to all tracked issues and PRs
+curl -s -X POST http://localhost:8000/report/github | python3 -m json.tool
+# Expect (with valid GITHUB_TOKEN):
+#   report_posted: true
+#   issues_commented: [list of issue numbers with issue_number > 0]
+#   prs_commented: [list of PR URLs]
+#   errors: [] (empty)
+# NOTE: This endpoint takes ~25-30 seconds due to sequential GitHub API calls
+
+# Verify comments actually exist on GitHub:
+TOKEN=$(gh auth token)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/<owner>/<repo>/issues/<N>/comments" | \
+  python3 -c "import sys,json; c=json.load(sys.stdin); print(len(c), c[-1]['body'][:80] if c else 'NONE')"
+# Expect: comment count increased, latest body contains "Devin Autofix — Status Report"
+```
+
+### 10. Graceful Degradation Without GITHUB_TOKEN
+```bash
+# Remove token and restart (MUST use down+up, not just restart — restart doesn't reload .env)
+sed -i 's|^GITHUB_TOKEN=.*|GITHUB_TOKEN=|' .env
+docker compose down && docker compose up -d
+sleep 4
+
+curl -s -X POST http://localhost:8000/report/github | python3 -m json.tool
+# Expect:
+#   HTTP 200 (not 500)
+#   report_posted: false
+#   issues_commented: [] (empty)
+#   prs_commented: [] (empty)
+#   errors: [one entry per issue + one per PR]
+
+# Check logs for proper warnings (not crashes)
+docker logs <container> 2>&1 | grep "GITHUB_TOKEN not set"
+# Expect: warning lines, NO unhandled exceptions or tracebacks
+
+# IMPORTANT: Restore token afterward
+TOKEN=$(gh auth token)
+sed -i "s|^GITHUB_TOKEN=.*|GITHUB_TOKEN=${TOKEN}|" .env
+docker compose down && docker compose up -d
+```
+
+### 11. Poller Auto-Reporting Integration
+The poller calls `report_session_completion()` when sessions transition to `succeeded` or `failed`.
+```bash
+# Verify import chain works in running container
+docker exec <container> python3 -c "from app.poller import _poll_once; from app.reporter import report_session_completion; print('imports OK')"
+
+# Verify code path exists
+docker exec <container> python3 -c "
+import inspect; from app.poller import _poll_once
+src = inspect.getsource(_poll_once)
+assert 'report_session_completion' in src, 'Missing call'
+assert 'SessionStatus.succeeded' in src, 'Missing succeeded check'
+assert 'SessionStatus.failed' in src, 'Missing failed check'
+print('ALL CHECKS PASS')
+"
+
+# If sessions have transitioned, check for auto-report evidence
+docker logs <container> 2>&1 | grep -E "(Posted report comment|completion report)"
+```
+
+### 12. Deduplication (Within-Call)
+Each `POST /report/github` call posts exactly 1 comment per unique issue and 1 per unique PR, even if multiple sessions reference the same issue.
+```bash
+# Count comments BEFORE
+BEFORE=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/<owner>/<repo>/issues/<N>/comments" | \
+  python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+
+# Post twice
+curl -s -X POST http://localhost:8000/report/github > /dev/null
+curl -s -X POST http://localhost:8000/report/github > /dev/null
+
+# Count comments AFTER
+AFTER=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/<owner>/<repo>/issues/<N>/comments" | \
+  python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+
+echo "New comments: $((AFTER - BEFORE))"
+# Expect: exactly 2 (one per call — within-call dedup works)
+# If >2: within-call dedup is broken (multiple sessions posted to same issue)
+# If <2: posting silently failed
+```
+
+## Reporting Gotchas
+
+- **`docker compose restart` does NOT reload .env:** You must use `docker compose down && docker compose up` to pick up env var changes. This is standard Docker behavior but easily forgotten during graceful-degradation tests.
+- **POST /report/github is slow (~25-30s):** It makes sequential HTTP calls to the GitHub API (one per issue + one per PR). Use a long timeout (30-60s) when curling.
+- **Scheduled scan sessions have issue_number=0:** These are correctly skipped by `post_report_to_github()` (only posts to `issue_number > 0`). Don't count them in expected `issues_commented`.
+- **Cross-call deduplication is NOT implemented (by design):** Each `POST /report/github` call posts a fresh report. Only within-call dedup exists (via `seen_issues`/`seen_prs` sets).
+- **PR comments use the GitHub Issues API:** GitHub treats PR comments as issue comments. To verify a comment on PR #12, query `/repos/.../issues/12/comments` (not `/pulls/12/comments`).
