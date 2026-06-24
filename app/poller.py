@@ -6,6 +6,7 @@ import logging
 from app.config import settings
 from app.devin_client import get_session
 from app.models import SessionStatus, store
+from app.reporter import report_session_completion
 
 logger = logging.getLogger("autofix.poller")
 
@@ -68,6 +69,14 @@ async def _poll_once() -> None:
                     tracked.status.value,
                     new_status.value,
                 )
+                # Report completion to GitHub issue when a session finishes
+                if new_status in (SessionStatus.succeeded, SessionStatus.failed):
+                    updated = store.get(tracked.devin_session_id)
+                    if updated:
+                        try:
+                            await report_session_completion(updated)
+                        except Exception:
+                            logger.exception("Failed to post completion report for %s", tracked.devin_session_id)
         except Exception:
             logger.exception("Error polling session %s", tracked.devin_session_id)
 
