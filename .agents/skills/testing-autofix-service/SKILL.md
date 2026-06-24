@@ -1,0 +1,147 @@
+---
+name: testing-autofix-service
+description: Test the Devin Autofix Service end-to-end. Use when verifying webhook handling, observability endpoints, scan scheduling, or Devin API integration changes.
+---
+
+# Testing the Devin Autofix Service
+
+## Prerequisites
+
+### Devin Secrets Needed
+- `DEVIN_API_KEY` — Required for real Devin session creation. Without it, you can still test all service logic up to the API boundary (webhook filtering, signature verification, observability, error handling).
+- `GITHUB_TOKEN` (optional) — Needed for Dependabot alerts API. Without it, the scan endpoint gracefully returns 0 alerts.
+- `GITHUB_WEBHOOK_SECRET` (optional) — Needed for HMAC signature verification tests. Without it, the service skips verification.
+
+### Environment
+- Docker and Docker Compose must be available
+- No GUI needed — all testing is shell-based (curl + docker compose)
+- No screen recording needed
+
+## Setup
+
+1. Clone the repo and `cd` into it
+2. Create `.env` file with at minimum:
+   ```
+   DEVIN_API_KEY=<your-key>
+   TARGET_REPO=emailsiwoo/superset-demo
+   TRIGGER_LABEL=devin-autofix
+   ```
+3. Build and start: `docker compose up --build -d`
+4. Verify startup logs: `docker compose logs` should show:
+   - "Devin Autofix service started"
+   - "Background poller started"
+   - "Scheduler started — daily scan at HH:MM UTC"
+   - "Next scheduled scan in N seconds"
+
+## Test Procedure
+
+### 1. Observability Endpoints
+```bash
+curl -s http://localhost:8000/health | python3 -m json.tool
+# Expect: {"status": "ok", "timestamp": "<ISO>"}
+
+curl -s http://localhost:8000/report | python3 -m json.tool
+# Expect: JSON with these fields:
+#   summary (string), completion_pct (float), success_rate_pct (float),
+#   status_breakdown (object with keys: pending, running, succeeded, failed, unknown),
+#   completed_sessions (int), pull_requests_opened (int),
+#   total_sessions, active_sessions, pull_requests, healthy, timestamp
+# Verify: sum of status_breakdown values == total_sessions
+# Verify: completed_sessions == status_breakdown.succeeded + status_breakdown.failed
+# Verify: completion_pct == round((completed_sessions / total_sessions) * 100, 1) if total > 0
+
+curl -s http://localhost:8000/dashboard
+# Expect: plain-text (Content-Type: text/plain) with:
+#   - "DEVIN AUTOFIX — STATUS DASHBOARD" header
+#   - "BOTTOM LINE:" with completion %, pass/fail counts, active count
+#   - "PROGRESS:" with visual bar [####------] and percentage
+#   - "SESSIONS:" table with STATUS/ID/TITLE/PR columns
+#   - Status icons: [PASS]=succeeded, [FAIL]=failed, [RUN]=running, [WAIT]=pending, [???]=unknown
+```
+
+### 2. Webhook Filtering
+```bash
+# Non-issue event → ignored
+curl -s -X POST http://localhost:8000/webhook/github \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -d '{"action":"push"}'
+# Expect: {"status": "ignored", "reason": "not a label event"}
+
+# Wrong label → ignored
+curl -s -X POST http://localhost:8000/webhook/github \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: issues" \
+  -d '{"action":"labeled","label":{"name":"bug"},"issue":{"number":1,"title":"Test","html_url":"https://github.com/example/repo/issues/1","body":"test"}}'
+# Expect: {"status": "ignored", "reason": "label 'bug' is not trigger label"}
+```
+
+### 3. Webhook with Trigger Label
+```bash
+curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://localhost:8000/webhook/github \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: issues" \
+  -d '{"action":"labeled","label":{"name":"devin-autofix"},"issue":{"number":42,"title":"Test issue","html_url":"https://github.com/example/repo/issues/42","body":"Test body"}}'
+# With valid API key: Expect HTTP 200, {"status": "created", "session_id": "...", "session_url": "..."}
+# With invalid API key: Expect HTTP 502, {"detail": "Failed to create Devin session: ..."}
+```
+
+### 4. Session Tracking (requires valid API key)
+After a successful webhook trigger:
+```bash
+curl -s http://localhost:8000/sessions | python3 -m json.tool
+# Expect: array with 1 element containing issue_number, devin_session_id, status: "running"
+
+curl -s http://localhost:8000/sessions/active | python3 -m json.tool
+# Expect: same session
+
+curl -s http://localhost:8000/sessions/<session_id> | python3 -m json.tool
+# Expect: full session detail
+```
+
+### 5. Duplicate Detection (requires valid API key)
+Send the same webhook payload again for the same issue number:
+```bash
+# Expect: {"status": "skipped", "reason": "session already active for this issue"}
+```
+
+### 6. Scan Trigger
+```bash
+curl -s -X POST http://localhost:8000/scan/trigger | python3 -m json.tool
+# Expect: critical_alerts: 0, high_alerts: 0 (without GITHUB_TOKEN)
+# With valid API key: dependency_session_created: true (actually creates session)
+# Without valid API key: dependency_session_created: false (fixed in PR #2)
+```
+
+### 7. Signature Verification
+Restart container with `GITHUB_WEBHOOK_SECRET=testsecret123` in `.env`:
+```bash
+# Unsigned request → rejected
+curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://localhost:8000/webhook/github \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -d '{"action":"push"}'
+# Expect: HTTP 401, {"detail": "Invalid signature"}
+
+# Valid HMAC → accepted
+PAYLOAD='{"action":"push"}'
+SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "testsecret123" | awk '{print $2}')
+curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://localhost:8000/webhook/github \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  -d "$PAYLOAD"
+# Expect: HTTP 200 (passes signature check, reaches event filtering)
+```
+
+## Known Issues / Gotchas
+
+- **Invalid API key gives 502, not 500:** The webhook returns HTTP 502 (Bad Gateway) when the Devin API rejects the request. This is intentional — the service correctly propagates upstream failures.
+- **Devin API status `'working'` might not be mapped:** The Devin API may return `status_enum: 'working'` for active sessions. If `_STATUS_MAP` in `app/poller.py` doesn't include `'working'`, all polled sessions will fall to `unknown` status. Check docker logs for `"Unmapped Devin status"` warnings — these indicate missing mappings. Fix by adding the unmapped value to `_STATUS_MAP`.
+- **Poller timing affects test results:** The poller runs on `poll_interval_seconds` (default 60s). After creating a session, it initially shows as `[RUN]` (running). After one poller cycle, the status may change depending on what the Devin API returns. If the API returns an unmapped status, the session reverts to `[???]` (unknown) and drops out of `active_sessions`.
+- **Session status determines active tracking:** Only `pending` and `running` sessions are considered "active" (see `store.active()`). If status mapping fails, sessions won't be polled again in subsequent cycles because they're no longer active.
+- **No GITHUB_TOKEN → Dependabot API returns 403/404:** The scan gracefully handles this by returning empty alerts. This is expected behavior, not an error.
+- **Signature verification is skipped when GITHUB_WEBHOOK_SECRET is empty:** This is by design for development/testing, but means the service accepts any request in that mode.
+- **Container might need a few seconds after restart before endpoints respond.** Add `sleep 2` after `docker compose restart` before curling.
+- **Testing observability with varied states:** To fully test completion %, success rate, and dashboard indicators with non-trivial values, you need sessions in different states (succeeded, failed, running). This requires the Devin API to return mapped statuses. If all sessions are `unknown`, the math checks will trivially pass with 0% values.
+- **Content-Type check for /dashboard:** Use `curl -s -D - http://localhost:8000/dashboard | head -5` to check headers. The `-I` (HEAD) method may return a different Content-Type than the actual GET response.
