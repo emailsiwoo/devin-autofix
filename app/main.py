@@ -200,7 +200,9 @@ async def dashboard() -> str:
     if total == 0:
         lines.append("  BOTTOM LINE: No sessions tracked yet.")
     else:
-        lines.append(f"  BOTTOM LINE: {completion_pct}% complete | {succeeded} passed | {failed} failed | {active} active")
+        lines.append(
+            f"  BOTTOM LINE: {completion_pct}% complete | {succeeded} passed | {failed} failed | {active} active"
+        )
         lines.append(f"  SUCCESS RATE: {success_rate}% of completed sessions")
     lines.append("")
 
@@ -208,8 +210,12 @@ async def dashboard() -> str:
     lines.append("-" * 60)
     lines.append(f"  Target repo:    {settings.target_repo}")
     lines.append(f"  Trigger label:  {settings.trigger_label}")
-    lines.append(f"  Scan schedule:  {settings.scan_hour_utc:02d}:{settings.scan_minute_utc:02d} UTC daily")
-    lines.append(f"  Polled at:      {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(
+        f"  Scan schedule:  {settings.scan_hour_utc:02d}:{settings.scan_minute_utc:02d} UTC daily"
+    )
+    lines.append(
+        f"  Polled at:      {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+    )
     lines.append("-" * 60)
     lines.append("")
 

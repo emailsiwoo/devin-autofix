@@ -66,7 +66,11 @@ class SessionStore:
         return list(self._sessions.values())
 
     def active(self) -> list[TrackedSession]:
-        return [s for s in self._sessions.values() if s.status in (SessionStatus.pending, SessionStatus.running)]
+        return [
+            s
+            for s in self._sessions.values()
+            if s.status in (SessionStatus.pending, SessionStatus.running)
+        ]
 
     def update(self, session_id: str, **kwargs: object) -> Optional[TrackedSession]:
         session = self._sessions.get(session_id)

@@ -20,11 +20,14 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     if not settings.github_webhook_secret:
         logger.warning("GITHUB_WEBHOOK_SECRET not set — skipping signature verification")
         return True
-    expected = "sha256=" + hmac.new(
-        settings.github_webhook_secret.encode(),
-        payload,
-        hashlib.sha256,
-    ).hexdigest()
+    expected = (
+        "sha256="
+        + hmac.new(
+            settings.github_webhook_secret.encode(),
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
+    )
     return hmac.compare_digest(expected, signature)
 
 
@@ -55,7 +58,7 @@ async def github_webhook(
     # --- signature verification ---
     if not verify_signature(body, x_hub_signature_256):
         logger.warning("Invalid webhook signature — rejecting request")
-        raise HTTPException(status_code= 401, detail="Invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
     payload: dict[str, Any] = await request.json()
     action = payload.get("action", "")
@@ -80,7 +83,10 @@ async def github_webhook(
 
     # Check for duplicate — don't re-trigger for the same issue
     for s in store.all():
-        if s.issue_number == issue_number and s.status in (SessionStatus.pending, SessionStatus.running):
+        if s.issue_number == issue_number and s.status in (
+            SessionStatus.pending,
+            SessionStatus.running,
+        ):
             logger.info("Session already active for issue #%s — skipping", issue_number)
             return {"status": "skipped", "reason": "session already active for this issue"}
 
@@ -105,4 +111,6 @@ async def github_webhook(
 
     except Exception as exc:
         logger.exception("Failed to create Devin session for issue #%s: %s", issue_number, exc)
-        raise HTTPException(status_code=502, detail=f"Failed to create Devin session: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Failed to create Devin session: {exc}"
+        ) from exc

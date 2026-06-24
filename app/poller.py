@@ -38,7 +38,9 @@ async def _poll_once() -> None:
             raw_status = data.get("status_enum") or data.get("status") or ""
             new_status = _STATUS_MAP.get(raw_status, SessionStatus.unknown)
             if new_status == SessionStatus.unknown and raw_status:
-                logger.warning("Unmapped Devin status: %r for session %s", raw_status, tracked.devin_session_id)
+                logger.warning(
+                    "Unmapped Devin status: %r for session %s", raw_status, tracked.devin_session_id
+                )
 
             # Detect PR URL from structured_output or pull_request fields
             pr_url = tracked.pr_url
@@ -76,7 +78,9 @@ async def _poll_once() -> None:
                         try:
                             await report_session_completion(updated)
                         except Exception:
-                            logger.exception("Failed to post completion report for %s", tracked.devin_session_id)
+                            logger.exception(
+                                "Failed to post completion report for %s", tracked.devin_session_id
+                            )
         except Exception:
             logger.exception("Error polling session %s", tracked.devin_session_id)
 

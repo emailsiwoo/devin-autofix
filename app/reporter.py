@@ -15,10 +15,10 @@ GITHUB_API = "https://api.github.com"
 
 _STATUS_EMOJI = {
     SessionStatus.succeeded: "\u2705",  # green check
-    SessionStatus.failed: "\u274c",      # red X
-    SessionStatus.running: "\u23f3",     # hourglass
-    SessionStatus.pending: "\u23f3",     # hourglass
-    SessionStatus.unknown: "\u2753",     # question mark
+    SessionStatus.failed: "\u274c",  # red X
+    SessionStatus.running: "\u23f3",  # hourglass
+    SessionStatus.pending: "\u23f3",  # hourglass
+    SessionStatus.unknown: "\u2753",  # question mark
 }
 
 
@@ -28,7 +28,9 @@ def build_report_markdown() -> str:
     total = len(all_sessions)
     succeeded = [s for s in all_sessions if s.status == SessionStatus.succeeded]
     failed = [s for s in all_sessions if s.status == SessionStatus.failed]
-    running = [s for s in all_sessions if s.status in (SessionStatus.running, SessionStatus.pending)]
+    running = [
+        s for s in all_sessions if s.status in (SessionStatus.running, SessionStatus.pending)
+    ]
     prs_waiting = [s for s in all_sessions if s.pr_url and s.status == SessionStatus.succeeded]
     completed = len(succeeded) + len(failed)
     completion_pct = round((completed / total) * 100, 1) if total > 0 else 0.0
@@ -68,7 +70,9 @@ def build_report_markdown() -> str:
         lines.append("")
         for s in succeeded:
             pr_link = f" — [PR]({s.pr_url})" if s.pr_url else ""
-            issue_ref = f"[#{s.issue_number}]({s.issue_url})" if s.issue_url else f"#{s.issue_number}"
+            issue_ref = (
+                f"[#{s.issue_number}]({s.issue_url})" if s.issue_url else f"#{s.issue_number}"
+            )
             lines.append(f"- {issue_ref} **{s.issue_title}**{pr_link}")
         lines.append("")
 
@@ -77,7 +81,9 @@ def build_report_markdown() -> str:
         lines.append("### \u23f3 What Is Still Running")
         lines.append("")
         for s in running:
-            issue_ref = f"[#{s.issue_number}]({s.issue_url})" if s.issue_url else f"#{s.issue_number}"
+            issue_ref = (
+                f"[#{s.issue_number}]({s.issue_url})" if s.issue_url else f"#{s.issue_number}"
+            )
             session_link = f"[Devin session]({s.devin_session_url})"
             lines.append(f"- {issue_ref} **{s.issue_title}** — {session_link}")
         lines.append("")
@@ -87,7 +93,9 @@ def build_report_markdown() -> str:
         lines.append("### \u274c What Failed")
         lines.append("")
         for s in failed:
-            issue_ref = f"[#{s.issue_number}]({s.issue_url})" if s.issue_url else f"#{s.issue_number}"
+            issue_ref = (
+                f"[#{s.issue_number}]({s.issue_url})" if s.issue_url else f"#{s.issue_number}"
+            )
             session_link = f"[Devin session]({s.devin_session_url})"
             lines.append(f"- {issue_ref} **{s.issue_title}** — {session_link}")
         lines.append("")
@@ -114,7 +122,9 @@ def build_report_markdown() -> str:
         session_link = f"[View]({s.devin_session_url})"
         pr = f"[PR]({s.pr_url})" if s.pr_url else "-"
         title_short = s.issue_title[:50] + ("..." if len(s.issue_title) > 50 else "")
-        lines.append(f"| {emoji} {s.status.value} | {issue_ref} | {title_short} | {session_link} | {pr} |")
+        lines.append(
+            f"| {emoji} {s.status.value} | {issue_ref} | {title_short} | {session_link} | {pr} |"
+        )
     lines.append("")
 
     return "\n".join(lines)
@@ -137,7 +147,9 @@ async def post_comment_to_issue(issue_number: int, body: str) -> bool:
             if resp.status_code == 201:
                 logger.info("Posted report comment to issue #%d", issue_number)
                 return True
-            logger.warning("Failed to post comment to issue #%d: HTTP %d", issue_number, resp.status_code)
+            logger.warning(
+                "Failed to post comment to issue #%d: HTTP %d", issue_number, resp.status_code
+            )
             return False
     except Exception:
         logger.exception("Error posting comment to issue #%d", issue_number)
@@ -234,9 +246,15 @@ async def report_session_completion(session: TrackedSession) -> None:
     lines.append("")
 
     if session.success:
-        lines.append("The fix has been implemented and a PR is ready for review." if session.pr_url else "The session completed successfully.")
+        lines.append(
+            "The fix has been implemented and a PR is ready for review."
+            if session.pr_url
+            else "The session completed successfully."
+        )
     else:
-        lines.append("The session did not complete successfully. Check the Devin session for details.")
+        lines.append(
+            "The session did not complete successfully. Check the Devin session for details."
+        )
 
     body = "\n".join(lines)
     await post_comment_to_issue(session.issue_number, body)
