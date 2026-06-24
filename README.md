@@ -86,6 +86,11 @@ docker compose up --build
 
 The service starts on **http://localhost:8000**.
 
+Optional: Testing Live GitHub Webhooks
+- If you would like to receive real GitHub webhook events while running locally, expose the service with a tunneling tool such as ngrok:
+ngrok http 8000
+https://<your-ngrok-url>/webhook/github
+
 ### 3. Set up the GitHub webhook
 
 1. Go to **Settings → Webhooks** in your target repository (`emailsiwoo/superset-demo`).
