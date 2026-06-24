@@ -12,6 +12,7 @@ from fastapi.responses import PlainTextResponse
 from app.config import settings
 from app.models import SessionStatus, store
 from app.poller import poll_loop
+from app.reporter import build_report_markdown, post_report_to_github
 from app.scheduler import run_daily_scan, scheduler_loop
 from app.webhook import router as webhook_router
 
@@ -65,6 +66,23 @@ async def trigger_scan() -> dict[str, object]:
     logger.info("Manual scan triggered via /scan/trigger")
     result = await run_daily_scan()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Reporting endpoints
+# ---------------------------------------------------------------------------
+@app.post("/report/github")
+async def publish_report_to_github() -> dict[str, object]:
+    """Post the full status report as comments on all tracked GitHub issues and PRs."""
+    logger.info("Publishing report to GitHub issues and PRs")
+    result = await post_report_to_github()
+    return result
+
+
+@app.get("/report/markdown", response_class=PlainTextResponse)
+async def report_markdown() -> str:
+    """Return the status report as markdown (for pasting into PRs, issues, etc.)."""
+    return build_report_markdown()
 
 
 # ---------------------------------------------------------------------------
