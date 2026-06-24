@@ -1,0 +1,13 @@
+services:
+  autofix:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - session-data:/data
+    restart: unless-stopped
+
+volumes:
+  session-data:
