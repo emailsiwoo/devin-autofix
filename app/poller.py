@@ -14,6 +14,7 @@ logger = logging.getLogger("autofix.poller")
 _STATUS_MAP: dict[str, SessionStatus] = {
     "running": SessionStatus.running,
     "in_progress": SessionStatus.running,
+    "working": SessionStatus.running,
     "finished": SessionStatus.succeeded,
     "completed": SessionStatus.succeeded,
     "stopped": SessionStatus.failed,
