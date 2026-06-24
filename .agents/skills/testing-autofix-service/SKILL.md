@@ -137,7 +137,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://localhost:8000/webhook/gith
 ## Known Issues / Gotchas
 
 - **Invalid API key gives 502, not 500:** The webhook returns HTTP 502 (Bad Gateway) when the Devin API rejects the request. This is intentional — the service correctly propagates upstream failures.
-- **Devin API status `'working'` might not be mapped:** The Devin API may return `status_enum: 'working'` for active sessions. If `_STATUS_MAP` in `app/poller.py` doesn't include `'working'`, all polled sessions will fall to `unknown` status. Check docker logs for `"Unmapped Devin status"` warnings — these indicate missing mappings. Fix by adding the unmapped value to `_STATUS_MAP`.
+- **Devin API may return unexpected status strings:** The API's `status_enum` field can contain values not in `_STATUS_MAP` (e.g., `'working'` was missing until PR #5). If you see `"Unmapped Devin status"` warnings in docker logs, add the missing value to `_STATUS_MAP` in `app/poller.py`. Without the mapping, sessions fall to `unknown`, drop out of active tracking, and break completion/success metrics.
 - **Poller timing affects test results:** The poller runs on `poll_interval_seconds` (default 60s). After creating a session, it initially shows as `[RUN]` (running). After one poller cycle, the status may change depending on what the Devin API returns. If the API returns an unmapped status, the session reverts to `[???]` (unknown) and drops out of `active_sessions`.
 - **Session status determines active tracking:** Only `pending` and `running` sessions are considered "active" (see `store.active()`). If status mapping fails, sessions won't be polled again in subsequent cycles because they're no longer active.
 - **No GITHUB_TOKEN → Dependabot API returns 403/404:** The scan gracefully handles this by returning empty alerts. This is expected behavior, not an error.
@@ -145,3 +145,22 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://localhost:8000/webhook/gith
 - **Container might need a few seconds after restart before endpoints respond.** Add `sleep 2` after `docker compose restart` before curling.
 - **Testing observability with varied states:** To fully test completion %, success rate, and dashboard indicators with non-trivial values, you need sessions in different states (succeeded, failed, running). This requires the Devin API to return mapped statuses. If all sessions are `unknown`, the math checks will trivially pass with 0% values.
 - **Content-Type check for /dashboard:** Use `curl -s -D - http://localhost:8000/dashboard | head -5` to check headers. The `-I` (HEAD) method may return a different Content-Type than the actual GET response.
+
+## Verifying Poller Status Mapping
+
+After any change to `_STATUS_MAP` in `app/poller.py`, run this focused test:
+
+1. Rebuild Docker: `docker compose down && docker compose up --build -d`
+2. Create a session via webhook (use a unique issue number to avoid duplicate detection):
+   ```bash
+   curl -s -X POST http://localhost:8000/webhook/github \
+     -H "Content-Type: application/json" -H "X-GitHub-Event: issues" \
+     -d '{"action":"labeled","label":{"name":"devin-autofix"},"issue":{"number":9999,"title":"Status map test","html_url":"https://github.com/emailsiwoo/superset-demo/issues/9999","body":"test"}}'
+   ```
+3. Wait ~65 seconds for at least one poller cycle
+4. Check assertions:
+   - `docker logs <container> 2>&1 | grep -i "unmapped"` → should return nothing
+   - `docker logs <container> 2>&1 | grep "Polling.*active"` → N should be >= 1
+   - `curl -s http://localhost:8000/dashboard` → new session should show `[RUN]` not `[???]`
+   - `curl -s http://localhost:8000/report` → `active_sessions >= 1`, `status_breakdown.running >= 1`
+5. If any assertion fails, check the Devin API response for new/changed status strings and update `_STATUS_MAP`
