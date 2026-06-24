@@ -76,7 +76,6 @@ Update `.env` with your own credentials:
 ```env
 DEVIN_API_KEY=your_api_key
 DEVIN_ORG_ID=your_org_id
-GITHUB_WEBHOOK_SECRET=your_secret
 ```
 
 ### 2. Run with Docker Compose
