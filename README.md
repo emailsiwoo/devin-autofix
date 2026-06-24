@@ -85,6 +85,7 @@ docker compose up --build
 ```
 
 The service starts on **http://localhost:8000**.
+Use **http://localhost:8000/dashboard** to see the Dashboard.
 
 Optional: Testing Live GitHub Webhooks
 - If you would like to receive real GitHub webhook events while running locally, expose the service with a tunneling tool such as ngrok:
