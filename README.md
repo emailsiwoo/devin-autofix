@@ -2,6 +2,28 @@
 
 A Dockerized automation tool that watches for GitHub issues labeled **`devin-autofix`** and automatically creates [Devin](https://devin.ai) sessions to investigate, fix, and open pull requests. It also runs a **daily scheduled scan** (default: 8 AM UTC) to detect critical vulnerabilities and outdated dependencies, creating Devin sessions to remediate them.
 
+# Why Devin?
+
+Traditional automation tools can execute predefined workflows, but they generally cannot investigate an unfamiliar codebase, determine an appropriate fix, validate the solution, and create a pull request autonomously.
+
+Devin can.
+
+Instead of automating individual tasks, this project demonstrates how engineering maintenance workflows can be automated end-to-end using an autonomous software engineering agent.
+
+# Business Impact
+
+Engineering teams spend significant time maintaining software rather than building new products.
+
+This project demonstrates how Devin can transform repository maintenance into an autonomous workflow by:
+
+* Reducing manual investigation and remediation work
+* Improving repository health and security posture
+* Accelerating dependency and vulnerability management
+* Allowing engineers to focus on feature development and customer value
+* Providing leadership visibility through reporting and observability
+
+
+
 ## Architecture
 
 ```
