@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.models import SessionStatus, store
 from app.poller import poll_loop
+from app.scheduler import run_daily_scan, scheduler_loop
 from app.webhook import router as webhook_router
 
 # ---------------------------------------------------------------------------
@@ -29,14 +30,16 @@ logger = logging.getLogger("autofix")
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    task = asyncio.create_task(poll_loop())
+    poller_task = asyncio.create_task(poll_loop())
+    scheduler_task = asyncio.create_task(scheduler_loop())
     logger.info("Devin Autofix service started")
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    for task in (poller_task, scheduler_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +53,17 @@ app = FastAPI(
 )
 
 app.include_router(webhook_router)
+
+
+# ---------------------------------------------------------------------------
+# Scheduled scan endpoints
+# ---------------------------------------------------------------------------
+@app.post("/scan/trigger")
+async def trigger_scan() -> dict[str, object]:
+    """Manually trigger the daily vulnerability & dependency scan."""
+    logger.info("Manual scan triggered via /scan/trigger")
+    result = await run_daily_scan()
+    return result
 
 
 # ---------------------------------------------------------------------------

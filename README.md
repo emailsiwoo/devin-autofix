@@ -1,6 +1,6 @@
 # Devin Autofix Service
 
-A Dockerized automation tool that watches for GitHub issues labeled **`devin-autofix`** and automatically creates [Devin](https://devin.ai) sessions to investigate, fix, and open pull requests.
+A Dockerized automation tool that watches for GitHub issues labeled **`devin-autofix`** and automatically creates [Devin](https://devin.ai) sessions to investigate, fix, and open pull requests. It also runs a **daily scheduled scan** (default: 8 AM UTC) to detect critical vulnerabilities and outdated dependencies, creating Devin sessions to remediate them.
 
 ## Architecture
 
@@ -18,6 +18,18 @@ GitHub Issue (labeled "devin-autofix")
         │
         ▼
   Observability endpoints (/report, /sessions, /health)
+
+
+Daily Scheduler (8 AM UTC)
+        │
+        ▼
+  Fetch Dependabot alerts (critical/high)
+        │
+        ▼
+  Create Devin session for vulnerability fixes
+        │
+        ▼
+  Create Devin session for dependency upgrades
 ```
 
 ## Quick Start
@@ -58,6 +70,9 @@ The service starts on **http://localhost:8000**.
 | `TARGET_REPO` | Target GitHub repo (default: `emailsiwoo/superset-demo`) |
 | `TRIGGER_LABEL` | Label that triggers automation (default: `devin-autofix`) |
 | `POLL_INTERVAL_SECONDS` | How often to poll session status (default: `60`) |
+| `GITHUB_TOKEN` | GitHub PAT for Dependabot alerts API (needs `security_events` scope) |
+| `SCAN_HOUR_UTC` | Hour (0-23) for the daily scan in UTC (default: `8`) |
+| `SCAN_MINUTE_UTC` | Minute (0-59) for the daily scan in UTC (default: `0`) |
 
 ## API Endpoints
 
@@ -69,6 +84,7 @@ The service starts on **http://localhost:8000**.
 | `GET` | `/sessions` | List all tracked sessions |
 | `GET` | `/sessions/active` | List active (pending/running) sessions |
 | `GET` | `/sessions/{session_id}` | Get details for a specific session |
+| `POST` | `/scan/trigger` | Manually trigger the daily vulnerability & dependency scan |
 
 ## Simulating the Workflow
 
@@ -105,6 +121,23 @@ curl http://localhost:8000/report
 # All sessions
 curl http://localhost:8000/sessions
 ```
+
+## Scheduled Daily Scan
+
+The service automatically runs a vulnerability and dependency scan every day at 8 AM UTC (configurable via `SCAN_HOUR_UTC` / `SCAN_MINUTE_UTC`).
+
+The scan:
+1. Fetches **critical** and **high** severity Dependabot alerts from the target repo.
+2. If any are found, creates a Devin session to upgrade the affected dependencies.
+3. Always creates a general dependency upgrade session to check for outdated packages.
+
+You can also trigger the scan manually:
+
+```bash
+curl -X POST http://localhost:8000/scan/trigger
+```
+
+> **Note:** The Dependabot alerts API requires a `GITHUB_TOKEN` with `security_events` scope. Without it, the scan still runs the general dependency upgrade check.
 
 ## Session Tracking
 
