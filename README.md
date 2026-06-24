@@ -80,7 +80,8 @@ The service starts on **http://localhost:8000**.
 |---|---|---|
 | `POST` | `/webhook/github` | GitHub webhook receiver |
 | `GET` | `/health` | Health check |
-| `GET` | `/report` | Summary report of automation status |
+| `GET` | `/report` | JSON summary with BLUF, completion %, success rate, status breakdown |
+| `GET` | `/dashboard` | Human-readable plain-text dashboard (curl-friendly) |
 | `GET` | `/sessions` | List all tracked sessions |
 | `GET` | `/sessions/active` | List active (pending/running) sessions |
 | `GET` | `/sessions/{session_id}` | Get details for a specific session |
@@ -112,14 +113,51 @@ curl -X POST http://localhost:8000/webhook/github \
 Then check the status:
 
 ```bash
+# Quick dashboard (human-readable, curl-friendly)
+curl http://localhost:8000/dashboard
+
+# JSON report with BLUF summary, completion %, and status breakdown
+curl http://localhost:8000/report
+
 # Health check
 curl http://localhost:8000/health
 
-# Full report
-curl http://localhost:8000/report
-
 # All sessions
 curl http://localhost:8000/sessions
+```
+
+### Example dashboard output
+
+```
+============================================================
+  DEVIN AUTOFIX — STATUS DASHBOARD
+============================================================
+
+  BOTTOM LINE: 75.0% complete | 2 passed | 1 failed | 1 active
+  SUCCESS RATE: 66.7% of completed sessions
+
+------------------------------------------------------------
+  Target repo:    emailsiwoo/superset-demo
+  Trigger label:  devin-autofix
+  Scan schedule:  08:00 UTC daily
+------------------------------------------------------------
+
+  PROGRESS: [######################--------] 75.0% (3/4)
+
+  SESSIONS:
+  --------------------------------------------------------
+  STATUS   ID             TITLE                          PR
+  --------------------------------------------------------
+  [PASS]   ..abc12345     Fix login redirect             Yes
+  [PASS]   ..def67890     [scheduled] Daily dependency.. -
+  [FAIL]   ..ghi24680     Update stale CSS imports       -
+  [RUN]    ..jkl13579     Fix API rate limiting          -
+  --------------------------------------------------------
+
+  PULL REQUESTS (1):
+    - https://github.com/emailsiwoo/superset-demo/pull/42
+
+============================================================
 ```
 
 ## Scheduled Daily Scan

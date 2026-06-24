@@ -9,13 +9,19 @@ from app.models import SessionStatus, store
 
 logger = logging.getLogger("autofix.poller")
 
-# Map Devin API status strings to our internal enum
+# Map Devin API status strings to our internal enum.
+# The API may return these in status_enum *or* top-level status.
 _STATUS_MAP: dict[str, SessionStatus] = {
     "running": SessionStatus.running,
+    "in_progress": SessionStatus.running,
     "finished": SessionStatus.succeeded,
+    "completed": SessionStatus.succeeded,
     "stopped": SessionStatus.failed,
     "failed": SessionStatus.failed,
+    "error": SessionStatus.failed,
     "blocked": SessionStatus.running,
+    "queued": SessionStatus.pending,
+    "pending": SessionStatus.pending,
 }
 
 
@@ -27,7 +33,10 @@ async def _poll_once() -> None:
     for tracked in active:
         try:
             data = await get_session(tracked.devin_session_id)
-            new_status = _STATUS_MAP.get(data.get("status_enum", ""), SessionStatus.unknown)
+            raw_status = data.get("status_enum") or data.get("status") or ""
+            new_status = _STATUS_MAP.get(raw_status, SessionStatus.unknown)
+            if new_status == SessionStatus.unknown and raw_status:
+                logger.warning("Unmapped Devin status: %r for session %s", raw_status, tracked.devin_session_id)
 
             # Detect PR URL from structured_output or pull_request fields
             pr_url = tracked.pr_url

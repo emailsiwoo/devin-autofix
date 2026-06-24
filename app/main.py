@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 
 from app.config import settings
 from app.models import SessionStatus, store
@@ -78,17 +79,50 @@ async def health() -> dict[str, str]:
 async def report() -> dict[str, object]:
     all_sessions = store.all()
     total = len(all_sessions)
-    active = len(store.active())
+    active_list = store.active()
+    active = len(active_list)
     succeeded = sum(1 for s in all_sessions if s.status == SessionStatus.succeeded)
     failed = sum(1 for s in all_sessions if s.status == SessionStatus.failed)
+    pending = sum(1 for s in all_sessions if s.status == SessionStatus.pending)
+    running = sum(1 for s in all_sessions if s.status == SessionStatus.running)
+    unknown = sum(1 for s in all_sessions if s.status == SessionStatus.unknown)
+    completed = succeeded + failed
     prs = [s.pr_url for s in all_sessions if s.pr_url]
+
+    completion_pct = round((completed / total) * 100, 1) if total > 0 else 0.0
+    success_rate = round((succeeded / completed) * 100, 1) if completed > 0 else 0.0
+
+    # BLUF summary line
+    if total == 0:
+        bluf = "No sessions tracked yet."
+    else:
+        parts = [f"{total} sessions"]
+        parts.append(f"{completion_pct}% complete")
+        if succeeded:
+            parts.append(f"{succeeded} succeeded")
+        if failed:
+            parts.append(f"{failed} failed")
+        if active:
+            parts.append(f"{active} active")
+        bluf = " | ".join(parts)
+
     return {
+        "summary": bluf,
         "target_repo": settings.target_repo,
         "trigger_label": settings.trigger_label,
+        "completion_pct": completion_pct,
+        "success_rate_pct": success_rate,
         "total_sessions": total,
+        "status_breakdown": {
+            "pending": pending,
+            "running": running,
+            "succeeded": succeeded,
+            "failed": failed,
+            "unknown": unknown,
+        },
         "active_sessions": active,
-        "succeeded": succeeded,
-        "failed": failed,
+        "completed_sessions": completed,
+        "pull_requests_opened": len(prs),
         "pull_requests": prs,
         "healthy": True,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -111,3 +145,89 @@ async def get_session_detail(session_id: str) -> dict[str, object]:
     if session is None:
         return {"error": "session not found"}
     return session.model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Dashboard — human-readable text report
+# ---------------------------------------------------------------------------
+_STATUS_ICON = {
+    SessionStatus.succeeded: "[PASS]",
+    SessionStatus.failed: "[FAIL]",
+    SessionStatus.running: "[RUN]",
+    SessionStatus.pending: "[WAIT]",
+    SessionStatus.unknown: "[???]",
+}
+
+
+@app.get("/dashboard", response_class=PlainTextResponse)
+async def dashboard() -> str:
+    """Human-readable plain-text dashboard for quick status checks."""
+    all_sessions = store.all()
+    total = len(all_sessions)
+    active = len(store.active())
+    succeeded = sum(1 for s in all_sessions if s.status == SessionStatus.succeeded)
+    failed = sum(1 for s in all_sessions if s.status == SessionStatus.failed)
+    completed = succeeded + failed
+    prs = [s for s in all_sessions if s.pr_url]
+    completion_pct = round((completed / total) * 100, 1) if total > 0 else 0.0
+    success_rate = round((succeeded / completed) * 100, 1) if completed > 0 else 0.0
+
+    lines: list[str] = []
+    lines.append("=" * 60)
+    lines.append("  DEVIN AUTOFIX — STATUS DASHBOARD")
+    lines.append("=" * 60)
+    lines.append("")
+
+    # BLUF
+    if total == 0:
+        lines.append("  BOTTOM LINE: No sessions tracked yet.")
+    else:
+        lines.append(f"  BOTTOM LINE: {completion_pct}% complete | {succeeded} passed | {failed} failed | {active} active")
+        lines.append(f"  SUCCESS RATE: {success_rate}% of completed sessions")
+    lines.append("")
+
+    # Config
+    lines.append("-" * 60)
+    lines.append(f"  Target repo:    {settings.target_repo}")
+    lines.append(f"  Trigger label:  {settings.trigger_label}")
+    lines.append(f"  Scan schedule:  {settings.scan_hour_utc:02d}:{settings.scan_minute_utc:02d} UTC daily")
+    lines.append(f"  Polled at:      {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append("-" * 60)
+    lines.append("")
+
+    # Progress bar
+    if total > 0:
+        bar_len = 30
+        filled = int(bar_len * completed / total)
+        bar = "#" * filled + "-" * (bar_len - filled)
+        lines.append(f"  PROGRESS: [{bar}] {completion_pct}% ({completed}/{total})")
+        lines.append("")
+
+    # Session table
+    lines.append("  SESSIONS:")
+    lines.append("  " + "-" * 56)
+    lines.append(f"  {'STATUS':<8} {'ID':<14} {'TITLE':<30} {'PR':}")
+    lines.append("  " + "-" * 56)
+
+    if not all_sessions:
+        lines.append("  (none)")
+    else:
+        for s in all_sessions:
+            icon = _STATUS_ICON.get(s.status, "[???]")
+            short_id = s.devin_session_id[-8:]
+            title = s.issue_title[:28] + (".." if len(s.issue_title) > 28 else "")
+            pr = "Yes" if s.pr_url else "-"
+            lines.append(f"  {icon:<8} ..{short_id:<12} {title:<30} {pr}")
+
+    lines.append("  " + "-" * 56)
+    lines.append("")
+
+    # PRs opened
+    if prs:
+        lines.append(f"  PULL REQUESTS ({len(prs)}):")
+        for s in prs:
+            lines.append(f"    - {s.pr_url}")
+        lines.append("")
+
+    lines.append("=" * 60)
+    return "\n".join(lines) + "\n"
